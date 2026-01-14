@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.db
+
+data/wordbook.csv
+data/cache/
+
+# Local dictionary downloads
+/ecdict.csv
+/dictionaries/
