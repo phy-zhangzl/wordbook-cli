@@ -143,3 +143,4 @@ make test
 - Copy `.env.example` to `.env` and set API keys if you want model enrichment.
 - Ensure `data/wordbook.csv` and `data/cache/` are not committed.
 - Run `make test`.
+- Optional: open a small doc-only PR to validate the review workflow.
