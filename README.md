@@ -81,6 +81,16 @@ Preferences are stored at `~/.config/word_agent/config.json` and include the
 save policy (`prompt`, `always`, `never`), review goal, and color output.
 Use `--save-policy`, `--goal`, `--no-color`, or `--color` to update.
 
+Example preferences file:
+
+```json
+{
+  "save_policy": "prompt",
+  "review_goal": 10,
+  "color": true
+}
+```
+
 ## Optional Model Enrichment
 Remote model enrichment is optional. If you do not configure it, the app still
 works with the local dictionary only.
