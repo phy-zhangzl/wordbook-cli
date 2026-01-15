@@ -70,6 +70,25 @@ class TestCLI(unittest.TestCase):
             entry = wordbook.find("world")
             self.assertIsNotNone(entry)
 
+    def test_cli_loop_saves_and_exits(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wordbook_path = Path(temp_dir) / "wordbook.csv"
+            args = [
+                "--loop",
+                "--dict",
+                str(self.fixture),
+                "--wordbook",
+                str(wordbook_path),
+                "--no-remote",
+            ]
+            input_stream = FakeInput("hello\ny\nq\n")
+            output_stream = io.StringIO()
+            exit_code = cli.main(args, input_stream=input_stream, output_stream=output_stream)
+            self.assertEqual(exit_code, 0)
+            wordbook = Wordbook(wordbook_path)
+            entry = wordbook.find("hello")
+            self.assertIsNotNone(entry)
+
 
 if __name__ == "__main__":
     unittest.main()

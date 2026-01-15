@@ -16,6 +16,20 @@ The wordbook is stored at `data/wordbook.csv` (created on first write).
 ## Lookup Tips
 - If a word is not found, the CLI prints numbered suggestions. Enter a number to retry.
 - Use `--update` to refresh an existing wordbook entry with the latest lookup.
+- Use `--loop` for continuous learning; press Enter or type `q`/`quit` to exit.
+
+## Continuous Learning Mode
+Start a session and enter words one-by-one until you quit:
+
+```bash
+w --loop
+```
+
+You can also provide the first word and then keep going:
+
+```bash
+w --loop hello
+```
 
 ## Dictionary Data
 The default dictionary file is `./ecdict.csv` (ECDICT). You can override it:

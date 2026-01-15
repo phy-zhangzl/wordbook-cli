@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, TextIO
 
@@ -19,7 +20,7 @@ SAVE_POLICIES = {"prompt", "always", "never"}
 
 def parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Lookup words and store them in a wordbook.")
-    parser.add_argument("word", help="English word to look up")
+    parser.add_argument("word", nargs="?", help="English word to look up")
     parser.add_argument("--dict", dest="dict_path", help="Path to local dictionary file")
     parser.add_argument("--wordbook", dest="wordbook_path", help="Path to wordbook CSV")
     parser.add_argument(
@@ -31,6 +32,7 @@ def parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
     parser.add_argument("--no-remote", action="store_true", help="Disable remote model enrichment")
     parser.add_argument("--dry-run", action="store_true", help="Show output without writing")
     parser.add_argument("--update", action="store_true", help="Update existing wordbook entry")
+    parser.add_argument("--loop", action="store_true", help="Continuous learning mode")
     parser.add_argument("--version", action="version", version="word-agent 0.1.0")
     return parser.parse_args(argv)
 
@@ -43,6 +45,22 @@ def prompt_choice(prompt: str, input_stream: TextIO, output_stream: TextIO) -> s
     output_stream.write(prompt)
     output_stream.flush()
     return input_stream.readline().strip().lower()
+
+
+def prompt_word(input_stream: TextIO, output_stream: TextIO) -> str | None:
+    if not is_interactive(input_stream):
+        return None
+    output_stream.write("Enter a word (or 'q' to quit): ")
+    output_stream.flush()
+    raw = input_stream.readline()
+    if not raw:
+        return None
+    cleaned = raw.strip()
+    if not cleaned:
+        return None
+    if cleaned.lower() in {"q", "quit", "exit"}:
+        return None
+    return normalize_word(cleaned)
 
 
 def prompt_suggestion(
@@ -70,6 +88,12 @@ def prompt_suggestion(
             return suggestion
     output_stream.write("Invalid choice.\n")
     return None
+
+
+@dataclass
+class LookupResult:
+    exit_code: int
+    fatal: bool = False
 
 
 def render_entry(entry: WordbookEntry, output_stream: TextIO) -> None:
@@ -181,6 +205,79 @@ def build_wordbook_entry(
     )
 
 
+def process_word(
+    word: str,
+    args: argparse.Namespace,
+    settings: "Settings",
+    wordbook: Wordbook,
+    dictionary: EcdictDictionary,
+    provider: object | None,
+    input_stream: TextIO,
+    output_stream: TextIO,
+) -> LookupResult:
+    while True:
+        existing = wordbook.find(word)
+        if existing and not args.update:
+            output_stream.write("Entry already exists in wordbook.\n")
+            render_entry(existing, output_stream)
+            if not is_interactive(input_stream):
+                return LookupResult(0)
+            choice = prompt_choice(
+                "Update existing entry? [y]es/[n]o: ",
+                input_stream,
+                output_stream,
+            )
+            if choice not in {"y", "yes"}:
+                return LookupResult(0)
+
+        try:
+            dict_entry = dictionary.lookup(word)
+        except DictionaryError as exc:
+            output_stream.write(f"Error: {exc}\n")
+            return LookupResult(2, fatal=True)
+        if dict_entry:
+            break
+        suggestions = dictionary.suggest(word)
+        output_stream.write("Word not found in dictionary.\n")
+        if suggestions:
+            output_stream.write("Did you mean:\n")
+            for index, suggestion in enumerate(suggestions, start=1):
+                output_stream.write(f"  {index}) {suggestion}\n")
+            selected = prompt_suggestion(suggestions, input_stream, output_stream)
+            if selected:
+                word = normalize_word(selected)
+                continue
+        return LookupResult(2)
+
+    enhancement = None
+    model_used = False
+    if provider:
+        try:
+            enhancement = provider.enhance(dict_entry)
+            model_used = True
+        except ProviderError as exc:
+            output_stream.write(f"Remote model error: {exc}\n")
+
+    wordbook_entry = build_wordbook_entry(dict_entry, enhancement)
+    render_summary(existing is not None, dict_entry.source, model_used, output_stream)
+    render_entry(wordbook_entry, output_stream)
+
+    if wordbook_entry.confidence < 0.5:
+        output_stream.write("Low confidence result; skipping save.\n")
+        return LookupResult(1)
+
+    save, new_policy = should_save(settings.save_policy, input_stream, output_stream)
+    if new_policy != settings.save_policy:
+        update_save_policy(new_policy)
+        settings.save_policy = new_policy
+    if save:
+        wordbook.upsert(wordbook_entry)
+        output_stream.write("Saved to wordbook.\n")
+    else:
+        output_stream.write("Not saved.\n")
+    return LookupResult(0)
+
+
 def should_save(
     save_policy: str,
     input_stream: TextIO,
@@ -204,6 +301,13 @@ def main(argv: Iterable[str] | None = None, input_stream: TextIO = sys.stdin, ou
     args = parse_args(argv)
     settings = load_settings()
 
+    if not args.word and not args.loop:
+        output_stream.write("Error: word is required unless --loop is set.\n")
+        return 2
+    if args.loop and not is_interactive(input_stream):
+        output_stream.write("Error: --loop requires an interactive terminal.\n")
+        return 2
+
     if args.dict_path:
         settings.dict_path = Path(args.dict_path)
     if args.wordbook_path:
@@ -217,42 +321,8 @@ def main(argv: Iterable[str] | None = None, input_stream: TextIO = sys.stdin, ou
     if args.no_remote:
         settings.allow_remote = False
 
-    word = normalize_word(args.word)
     wordbook = Wordbook(settings.wordbook_path)
     dictionary = EcdictDictionary(settings.dict_path, cache_dir=settings.cache_dir)
-    existing = None
-    while True:
-        existing = wordbook.find(word)
-        if existing and not args.update:
-            output_stream.write("Entry already exists in wordbook.\n")
-            render_entry(existing, output_stream)
-            if not is_interactive(input_stream):
-                return 0
-            choice = prompt_choice("Update existing entry? [y]es/[n]o: ", input_stream, output_stream)
-            if choice not in {"y", "yes"}:
-                return 0
-
-        try:
-            dict_entry = dictionary.lookup(word)
-        except DictionaryError as exc:
-            output_stream.write(f"Error: {exc}\n")
-            return 2
-        if dict_entry:
-            break
-        suggestions = dictionary.suggest(word)
-        output_stream.write("Word not found in dictionary.\n")
-        if suggestions:
-            output_stream.write("Did you mean:\n")
-            for index, suggestion in enumerate(suggestions, start=1):
-                output_stream.write(f"  {index}) {suggestion}\n")
-            selected = prompt_suggestion(suggestions, input_stream, output_stream)
-            if selected:
-                word = normalize_word(selected)
-                continue
-        return 2
-
-    enhancement = None
-    model_used = False
     provider = None
     if settings.allow_remote:
         provider = get_provider(
@@ -261,30 +331,37 @@ def main(argv: Iterable[str] | None = None, input_stream: TextIO = sys.stdin, ou
             api_key=settings.api_key,
             model=settings.model,
         )
-    if provider:
-        try:
-            enhancement = provider.enhance(dict_entry)
-            model_used = True
-        except ProviderError as exc:
-            output_stream.write(f"Remote model error: {exc}\n")
-
-    wordbook_entry = build_wordbook_entry(dict_entry, enhancement)
-    render_summary(existing is not None, dict_entry.source, model_used, output_stream)
-    render_entry(wordbook_entry, output_stream)
-
-    if wordbook_entry.confidence < 0.5:
-        output_stream.write("Low confidence result; skipping save.\n")
-        return 1
-
-    save, new_policy = should_save(settings.save_policy, input_stream, output_stream)
-    if new_policy != settings.save_policy:
-        update_save_policy(new_policy)
-    if save:
-        wordbook.upsert(wordbook_entry)
-        output_stream.write("Saved to wordbook.\n")
-    else:
-        output_stream.write("Not saved.\n")
-    return 0
+    if args.loop:
+        current_word = normalize_word(args.word) if args.word else None
+        while True:
+            if not current_word:
+                current_word = prompt_word(input_stream, output_stream)
+                if not current_word:
+                    return 0
+            result = process_word(
+                current_word,
+                args,
+                settings,
+                wordbook,
+                dictionary,
+                provider,
+                input_stream,
+                output_stream,
+            )
+            if result.fatal:
+                return result.exit_code
+            current_word = None
+    result = process_word(
+        normalize_word(args.word),
+        args,
+        settings,
+        wordbook,
+        dictionary,
+        provider,
+        input_stream,
+        output_stream,
+    )
+    return result.exit_code
 
 
 if __name__ == "__main__":

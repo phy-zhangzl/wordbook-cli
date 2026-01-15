@@ -20,6 +20,40 @@
 5. 用户确认：提供 `是/否/总是` 三选项；“总是”写入全局偏好。
 6. 写入存档：规范化词形（小写/词元），幂等写入，记录来源与时间。
 
+## 最小 Agent Loop 设计
+目标：在现有 CLI 上引入最小 LLM 驱动循环，但保持可控、可解释、可回退。
+
+### 关键状态
+- `word`：当前查询词（可能被纠错/选择更新）。
+- `candidates`：模糊匹配候选列表。
+- `dict_entry`：本地词典结果。
+- `enhancement`：模型补充结果（可选）。
+- `save_policy`：保存策略（prompt/always/never）。
+- `step_count`：循环步数（用于终止）。
+
+### 可调用工具（actions）
+- `wordbook.find(word)`：查生词本。
+- `dictionary.lookup(word)`：查本地词典。
+- `dictionary.suggest(word)`：生成候选并允许交互选择。
+- `provider.enhance(entry)`：模型补充（词形/用法/记忆/例句）。
+- `wordbook.upsert(entry)`：保存或更新词条。
+- `update_save_policy(choice)`：更新全局偏好。
+
+### Loop 流程（MVP）
+1. Observe：加载偏好与配置，读取输入词与参数。
+2. Decide：根据状态选择下一步工具（优先本地词典，再模型补充）。
+3. Act：执行工具并收集输出（结果或错误）。
+4. Render：输出摘要与词条内容。
+5. Save：按策略决定是否写入生词本。
+6. Terminate：成功、用户取消、候选为空、或达到 `max_steps`。
+
+### 控制与回退
+- `max_steps`：默认 6，避免无限循环。
+- 提供 `--loop` 连续学习模式；输入空行或 `q/quit/exit` 可退出。
+- LLM 决策输出采用结构化 JSON（tool + args），并做严格校验。
+- LLM 不可用或解析失败时，回退到当前确定性流程。
+- 仅记录工具结果与摘要，不保存链路推理。
+
 ## 工具与数据
 - 查询工具：本地生词本检索、本地词典检索、可选在线词典 API、
   模糊匹配建议。
