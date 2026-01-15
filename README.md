@@ -17,6 +17,34 @@ The wordbook is stored at `data/wordbook.csv` (created on first write).
 - If a word is not found, the CLI prints numbered suggestions. Enter a number to retry.
 - Use `--update` to refresh an existing wordbook entry with the latest lookup.
 - Use `--loop` for continuous learning; press Enter or type `q`/`quit` to exit.
+- Use `--review` to run spaced repetition sessions and score recall.
+- Use `--agent` to let the model choose between review and lookup.
+
+## Review Mode
+Review due words and score recall from 0-5:
+
+```bash
+w --review
+```
+
+Set a per-session goal (saved in `~/.config/word_agent/config.json`):
+
+```bash
+w --review --goal 10
+```
+
+## Agent Mode
+Let the model decide the next action based on your progress:
+
+```bash
+w --agent
+```
+
+You can provide the first word and keep going:
+
+```bash
+w --agent hello
+```
 
 ## Continuous Learning Mode
 Start a session and enter words one-by-one until you quit:
@@ -44,7 +72,8 @@ Delete `data/cache/*.sqlite` to rebuild the cache.
 
 ## Preferences
 Preferences are stored at `~/.config/word_agent/config.json` and include the
-save policy (`prompt`, `always`, `never`). Use `--save-policy` to override.
+save policy (`prompt`, `always`, `never`) and review goal. Use `--save-policy`
+or `--goal` to override.
 
 ## Optional Model Enrichment
 Remote model enrichment is optional. If you do not configure it, the app still
@@ -62,6 +91,7 @@ To enable a remote provider, set:
 Pass `--no-remote` to disable remote calls for a single run.
 Model enrichment can add extra English definitions, examples, word forms, usage tips,
 and mnemonics.
+Agent planning and review coaching also use the configured remote model.
 
 ## Optional Global Command
 If you want to run `w <word>` from any directory, add this to your shell config:

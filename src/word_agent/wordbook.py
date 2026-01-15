@@ -74,10 +74,29 @@ class Wordbook:
         data["word_forms"] = join_list(entry.word_forms)
         data["usage_tips"] = join_list(entry.usage_tips)
         data["mnemonics"] = join_list(entry.mnemonics)
+        data["confusions"] = join_list(entry.confusions)
         data["confidence"] = f"{entry.confidence:.2f}" if entry.confidence else ""
+        data["review_interval_days"] = (
+            f"{entry.review_interval_days:.2f}" if entry.review_interval_days else ""
+        )
+        data["review_ease"] = f"{entry.review_ease:.2f}" if entry.review_ease else ""
+        data["review_streak"] = str(entry.review_streak) if entry.review_streak else ""
+        data["review_lapses"] = str(entry.review_lapses) if entry.review_lapses else ""
         return data
 
     def _row_to_entry(self, row: Dict[str, str]) -> WordbookEntry:
+        def parse_float(value: str, default: float = 0.0) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
+        def parse_int(value: str, default: int = 0) -> int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
         return WordbookEntry(
             word=row.get("word", ""),
             lemma=row.get("lemma", ""),
@@ -91,9 +110,17 @@ class Wordbook:
             mnemonics=split_list(row.get("mnemonics", "")),
             source=row.get("source", ""),
             model=row.get("model", ""),
-            confidence=float(row.get("confidence", "0") or 0),
+            confidence=parse_float(row.get("confidence", ""), 0.0),
             created_at=row.get("created_at", ""),
             updated_at=row.get("updated_at", ""),
             user_note=row.get("user_note", ""),
             status=row.get("status", "active"),
+            review_due=row.get("review_due", ""),
+            review_interval_days=parse_float(row.get("review_interval_days", ""), 0.0),
+            review_ease=parse_float(row.get("review_ease", ""), 2.5),
+            review_streak=parse_int(row.get("review_streak", ""), 0),
+            review_lapses=parse_int(row.get("review_lapses", ""), 0),
+            reviewed_at=row.get("reviewed_at", ""),
+            review_tip=row.get("review_tip", ""),
+            confusions=split_list(row.get("confusions", "")),
         )

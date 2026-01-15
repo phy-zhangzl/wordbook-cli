@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_SAVE_POLICY = "prompt"
+DEFAULT_REVIEW_GOAL = 10
 CONFIG_PATH = Path(os.getenv("WORD_AGENT_CONFIG", "~/.config/word_agent/config.json")).expanduser()
 DOTENV_PATH = Path(os.getenv("DOTENV_PATH", ".env"))
 
@@ -18,6 +19,7 @@ class Settings:
     dict_path: Path
     cache_dir: Path
     save_policy: str
+    review_goal: int
     allow_remote: bool
     provider: str
     model: str
@@ -64,11 +66,17 @@ def load_settings() -> Settings:
     load_dotenv()
     preferences = load_preferences()
     save_policy = preferences.get("save_policy", DEFAULT_SAVE_POLICY)
+    review_goal = preferences.get("review_goal", DEFAULT_REVIEW_GOAL)
+    try:
+        review_goal = int(os.getenv("REVIEW_GOAL", review_goal))
+    except (TypeError, ValueError):
+        review_goal = DEFAULT_REVIEW_GOAL
     return Settings(
         wordbook_path=Path(os.getenv("WORDBOOK_PATH", "data/wordbook.csv")),
         dict_path=Path(os.getenv("DICT_PATH", "ecdict.csv")),
         cache_dir=Path(os.getenv("CACHE_DIR", "data/cache")),
         save_policy=save_policy,
+        review_goal=review_goal,
         allow_remote=os.getenv("ALLOW_REMOTE", "1") != "0",
         provider=os.getenv("PROVIDER", ""),
         model=os.getenv("MODEL", ""),
@@ -80,4 +88,10 @@ def load_settings() -> Settings:
 def update_save_policy(save_policy: str) -> None:
     preferences = load_preferences()
     preferences["save_policy"] = save_policy
+    save_preferences(preferences)
+
+
+def update_review_goal(review_goal: int) -> None:
+    preferences = load_preferences()
+    preferences["review_goal"] = review_goal
     save_preferences(preferences)

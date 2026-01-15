@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from word_agent import cli
+from word_agent.models import WordbookEntry
 from word_agent.wordbook import Wordbook
 
 
@@ -88,6 +89,36 @@ class TestCLI(unittest.TestCase):
             wordbook = Wordbook(wordbook_path)
             entry = wordbook.find("hello")
             self.assertIsNotNone(entry)
+
+    def test_cli_review_updates_due(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            wordbook_path = Path(temp_dir) / "wordbook.csv"
+            wordbook = Wordbook(wordbook_path)
+            entry = WordbookEntry(
+                word="hello",
+                lemma="hello",
+                pos="interj",
+                pronunciation="heh-low",
+                definitions_en=["greeting"],
+                translations_zh=["ni hao"],
+                review_due="2023-01-01T00:00:00+00:00",
+            )
+            wordbook.upsert(entry)
+            args = [
+                "--review",
+                "--dict",
+                str(self.fixture),
+                "--wordbook",
+                str(wordbook_path),
+                "--no-remote",
+            ]
+            input_stream = FakeInput("5\n")
+            output_stream = io.StringIO()
+            exit_code = cli.main(args, input_stream=input_stream, output_stream=output_stream)
+            self.assertEqual(exit_code, 0)
+            updated = wordbook.find("hello")
+            self.assertIsNotNone(updated)
+            self.assertNotEqual(updated.review_due, "2023-01-01T00:00:00+00:00")
 
 
 if __name__ == "__main__":

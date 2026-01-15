@@ -36,6 +36,7 @@
 - `dictionary.lookup(word)`：查本地词典。
 - `dictionary.suggest(word)`：生成候选并允许交互选择。
 - `provider.enhance(entry)`：模型补充（词形/用法/记忆/例句）。
+- `provider.review_coach(entry)`：纠错提示与易混词建议（可选）。
 - `wordbook.upsert(entry)`：保存或更新词条。
 - `update_save_policy(choice)`：更新全局偏好。
 
@@ -50,9 +51,15 @@
 ### 控制与回退
 - `max_steps`：默认 6，避免无限循环。
 - 提供 `--loop` 连续学习模式；输入空行或 `q/quit/exit` 可退出。
+- 提供 `--agent` 模式，让模型选择 review/lookup/exit 等动作。
 - LLM 决策输出采用结构化 JSON（tool + args），并做严格校验。
 - LLM 不可用或解析失败时，回退到当前确定性流程。
 - 仅记录工具结果与摘要，不保存链路推理。
+
+## 复习与学习目标
+- `--review` 进入复习模式，用户自评 0-5 分，按 SM-2 调整间隔。
+- `--goal` 设置每次会话目标（复习/新词条数量），并写入配置。
+- 答错时可调用模型生成纠错提示与易混词，写入 `review_tip`/`confusions`。
 
 ## 工具与数据
 - 查询工具：本地生词本检索、本地词典检索、可选在线词典 API、
@@ -67,7 +74,8 @@
 字段建议：`word`、`lemma`、`pos`、`pronunciation`（IPA/美音/英音）、
 `definitions_en`、`translations_zh`、`examples`、`word_forms`、`usage_tips`、
 `mnemonics`、`source`、`model`、`confidence`、`created_at`、`updated_at`、
-`user_note`、`status`。
+`user_note`、`status`、`review_due`、`review_interval_days`、`review_ease`、
+`review_streak`、`review_lapses`、`reviewed_at`、`review_tip`、`confusions`。
 CSV 需包含表头，UTF-8 编码，每行一词。
 
 ## 模型与 API 选择（可配置多家）

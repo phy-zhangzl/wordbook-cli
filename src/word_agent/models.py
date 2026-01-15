@@ -23,6 +23,14 @@ WORD_FIELDS = [
     "updated_at",
     "user_note",
     "status",
+    "review_due",
+    "review_interval_days",
+    "review_ease",
+    "review_streak",
+    "review_lapses",
+    "reviewed_at",
+    "review_tip",
+    "confusions",
 ]
 
 
@@ -68,3 +76,11 @@ class WordbookEntry:
     updated_at: str = ""
     user_note: str = ""
     status: str = "active"
+    review_due: str = ""
+    review_interval_days: float = 0.0
+    review_ease: float = 2.5
+    review_streak: int = 0
+    review_lapses: int = 0
+    reviewed_at: str = ""
+    review_tip: str = ""
+    confusions: List[str] = field(default_factory=list)
