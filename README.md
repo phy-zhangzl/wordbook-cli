@@ -19,6 +19,7 @@ The wordbook is stored at `data/wordbook.csv` (created on first write).
 - Use `--loop` for continuous learning; press Enter or type `q`/`quit` to exit.
 - Use `--review` to run spaced repetition sessions and score recall.
 - Use `--agent` to let the model choose between review and lookup.
+- Output uses ANSI colors in TTYs; use `--no-color` to persist, or `NO_COLOR=1` once.
 
 ## Review Mode
 Review due words and score recall from 0-5:
@@ -33,6 +34,9 @@ Set a per-session goal (saved in `~/.config/word_agent/config.json`):
 w --review --goal 10
 ```
 
+If a model is configured, review mode enriches missing definitions, examples,
+word forms, usage tips, and mnemonics and writes them back to the wordbook.
+
 ## Agent Mode
 Let the model decide the next action based on your progress:
 
@@ -45,6 +49,8 @@ You can provide the first word and keep going:
 ```bash
 w --agent hello
 ```
+
+Agent mode applies the same enrichment policy while reviewing due words.
 
 ## Continuous Learning Mode
 Start a session and enter words one-by-one until you quit:
@@ -72,8 +78,8 @@ Delete `data/cache/*.sqlite` to rebuild the cache.
 
 ## Preferences
 Preferences are stored at `~/.config/word_agent/config.json` and include the
-save policy (`prompt`, `always`, `never`) and review goal. Use `--save-policy`
-or `--goal` to override.
+save policy (`prompt`, `always`, `never`), review goal, and color output.
+Use `--save-policy`, `--goal`, `--no-color`, or `--color` to update.
 
 ## Optional Model Enrichment
 Remote model enrichment is optional. If you do not configure it, the app still

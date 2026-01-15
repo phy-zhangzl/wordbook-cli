@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, TextIO
 
-from word_agent.config import load_settings, update_review_goal, update_save_policy
+from word_agent.config import (
+    load_settings,
+    update_color_preference,
+    update_review_goal,
+    update_save_policy,
+)
 from word_agent.dictionary import DictionaryError, EcdictDictionary
 from word_agent.models import DictionaryEntry, ModelEnhancement, WordbookEntry
 from word_agent.providers import ProviderError, get_provider
@@ -17,6 +23,15 @@ from word_agent.utils import normalize_word
 from word_agent.wordbook import Wordbook
 
 SAVE_POLICIES = {"prompt", "always", "never"}
+ANSI_RESET = "\033[0m"
+ANSI_BOLD = "\033[1m"
+ANSI_DIM = "\033[2m"
+ANSI_RED = "\033[31m"
+ANSI_GREEN = "\033[32m"
+ANSI_YELLOW = "\033[33m"
+ANSI_BLUE = "\033[34m"
+ANSI_CYAN = "\033[36m"
+COLOR_PREF: bool | None = None
 
 
 def parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
@@ -38,12 +53,56 @@ def parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
     parser.add_argument("--goal", type=int, help="Learning goal (items per session)")
     parser.add_argument("--agent", action="store_true", help="Agent loop with model planning")
     parser.add_argument("--max-steps", type=int, default=6, help="Maximum agent steps")
+    color_group = parser.add_mutually_exclusive_group()
+    color_group.add_argument("--color", action="store_true", help="Enable color output")
+    color_group.add_argument("--no-color", action="store_true", help="Disable color output")
     parser.add_argument("--version", action="version", version="word-agent 0.1.0")
     return parser.parse_args(argv)
 
 
 def is_interactive(stream: TextIO) -> bool:
     return bool(getattr(stream, "isatty", lambda: False)())
+
+
+def supports_color(stream: TextIO) -> bool:
+    if os.getenv("NO_COLOR"):
+        return False
+    if os.getenv("TERM") == "dumb":
+        return False
+    if COLOR_PREF is False:
+        return False
+    return is_interactive(stream)
+
+
+def style_text(text: str, *codes: str, enabled: bool) -> str:
+    if not enabled or not codes:
+        return text
+    return f"{''.join(codes)}{text}{ANSI_RESET}"
+
+
+def format_missing(enabled: bool) -> str:
+    return style_text("-", ANSI_DIM, enabled=enabled)
+
+
+def format_field(
+    label: str,
+    value: str,
+    enabled: bool,
+    value_codes: tuple[str, ...] | None = None,
+) -> str:
+    label_text = style_text(label, ANSI_CYAN, enabled=enabled)
+    if value:
+        if value_codes:
+            value_text = style_text(value, *value_codes, enabled=enabled)
+        else:
+            value_text = value
+    else:
+        value_text = format_missing(enabled)
+    return f"{label_text} {value_text}"
+
+
+def render_section(title: str, output_stream: TextIO, enabled: bool) -> None:
+    output_stream.write(f"{style_text(title, ANSI_BOLD, ANSI_YELLOW, enabled=enabled)}\n")
 
 
 def prompt_choice(prompt: str, input_stream: TextIO, output_stream: TextIO) -> str:
@@ -113,12 +172,13 @@ def prompt_review_score(input_stream: TextIO, output_stream: TextIO) -> int | No
 
 def render_review_answer(entry: WordbookEntry, output_stream: TextIO) -> None:
     def render_list(title: str, items: list[str]) -> None:
-        output_stream.write(f"{title}:\n")
+        use_color = supports_color(output_stream)
+        render_section(f"{title}:", output_stream, use_color)
         if items:
             for item in items:
                 output_stream.write(f"  - {item}\n")
         else:
-            output_stream.write("  - -\n")
+            output_stream.write(f"  - {format_missing(use_color)}\n")
 
     render_list("Definitions (EN)", entry.definitions_en)
     render_list("Translations (ZH)", entry.translations_zh)
@@ -185,49 +245,54 @@ class AgentDecision:
 
 
 def render_entry(entry: WordbookEntry, output_stream: TextIO) -> None:
-    output_stream.write(f"Word: {entry.word}\n")
-    output_stream.write(f"Lemma: {entry.lemma or '-'}\n")
-    output_stream.write(f"POS: {entry.pos or '-'}\n")
-    output_stream.write(f"Pronunciation: {entry.pronunciation or '-'}\n")
-    output_stream.write("Definitions (EN):\n")
+    use_color = supports_color(output_stream)
+    output_stream.write(
+        f"{format_field('Word:', entry.word, use_color, value_codes=(ANSI_BOLD, ANSI_BLUE))}\n"
+    )
+    output_stream.write(f"{format_field('Lemma:', entry.lemma, use_color)}\n")
+    output_stream.write(f"{format_field('POS:', entry.pos, use_color)}\n")
+    output_stream.write(f"{format_field('Pronunciation:', entry.pronunciation, use_color)}\n")
+    render_section("Definitions (EN):", output_stream, use_color)
     if entry.definitions_en:
         for definition in entry.definitions_en:
             output_stream.write(f"  - {definition}\n")
     else:
-        output_stream.write("  - -\n")
-    output_stream.write("Translations (ZH):\n")
+        output_stream.write(f"  - {format_missing(use_color)}\n")
+    render_section("Translations (ZH):", output_stream, use_color)
     if entry.translations_zh:
         for translation in entry.translations_zh:
             output_stream.write(f"  - {translation}\n")
     else:
-        output_stream.write("  - -\n")
-    output_stream.write("Examples:\n")
+        output_stream.write(f"  - {format_missing(use_color)}\n")
+    render_section("Examples:", output_stream, use_color)
     if entry.examples:
         for example in entry.examples:
             output_stream.write(f"  - {example}\n")
     else:
-        output_stream.write("  - -\n")
-    output_stream.write("Word Forms:\n")
+        output_stream.write(f"  - {format_missing(use_color)}\n")
+    render_section("Word Forms:", output_stream, use_color)
     if entry.word_forms:
         for form in entry.word_forms:
             output_stream.write(f"  - {form}\n")
     else:
-        output_stream.write("  - -\n")
-    output_stream.write("Usage Tips:\n")
+        output_stream.write(f"  - {format_missing(use_color)}\n")
+    render_section("Usage Tips:", output_stream, use_color)
     if entry.usage_tips:
         for tip in entry.usage_tips:
             output_stream.write(f"  - {tip}\n")
     else:
-        output_stream.write("  - -\n")
-    output_stream.write("Mnemonics:\n")
+        output_stream.write(f"  - {format_missing(use_color)}\n")
+    render_section("Mnemonics:", output_stream, use_color)
     if entry.mnemonics:
         for mnemonic in entry.mnemonics:
             output_stream.write(f"  - {mnemonic}\n")
     else:
-        output_stream.write("  - -\n")
-    output_stream.write(f"Source: {entry.source or '-'}\n")
-    output_stream.write(f"Model: {entry.model or '-'}\n")
-    output_stream.write(f"Confidence: {entry.confidence:.2f}\n")
+        output_stream.write(f"  - {format_missing(use_color)}\n")
+    output_stream.write(f"{format_field('Source:', entry.source, use_color)}\n")
+    output_stream.write(f"{format_field('Model:', entry.model, use_color)}\n")
+    output_stream.write(
+        f"{format_field('Confidence:', f'{entry.confidence:.2f}', use_color)}\n"
+    )
 
 
 def render_summary(
@@ -236,10 +301,19 @@ def render_summary(
     model_used: bool,
     output_stream: TextIO,
 ) -> None:
-    output_stream.write("Tool Summary:\n")
-    output_stream.write(f"  - wordbook: {'hit' if wordbook_hit else 'miss'}\n")
+    use_color = supports_color(output_stream)
+    render_section("Tool Summary:", output_stream, use_color)
+    wordbook_value = "hit" if wordbook_hit else "miss"
+    model_value = "used" if model_used else "skipped"
+    wordbook_color = ANSI_GREEN if wordbook_hit else ANSI_RED
+    model_color = ANSI_GREEN if model_used else ANSI_DIM
+    output_stream.write(
+        f"  - wordbook: {style_text(wordbook_value, wordbook_color, enabled=use_color)}\n"
+    )
     output_stream.write(f"  - dictionary: {dictionary_source}\n")
-    output_stream.write(f"  - model: {'used' if model_used else 'skipped'}\n")
+    output_stream.write(
+        f"  - model: {style_text(model_value, model_color, enabled=use_color)}\n"
+    )
 
 
 def merge_unique(base: list[str], extra: list[str]) -> list[str]:
@@ -252,6 +326,58 @@ def merge_unique(base: list[str], extra: list[str]) -> list[str]:
         seen.add(cleaned)
         merged.append(cleaned)
     return merged
+
+
+def needs_enrichment(entry: WordbookEntry) -> bool:
+    return bool(
+        not entry.definitions_en
+        or not entry.examples
+        or not entry.word_forms
+        or not entry.usage_tips
+        or not entry.mnemonics
+    )
+
+
+def maybe_enrich_entry(
+    entry: WordbookEntry,
+    provider: object | None,
+    output_stream: TextIO,
+) -> bool:
+    if not provider or not hasattr(provider, "enhance"):
+        return False
+    if not needs_enrichment(entry):
+        return False
+    dict_entry = DictionaryEntry(
+        word=entry.word,
+        lemma=entry.lemma or entry.word,
+        pos=entry.pos or "",
+        pronunciation=entry.pronunciation or "",
+        definitions_en=list(entry.definitions_en),
+        translations_zh=list(entry.translations_zh),
+        source=entry.source or "",
+        confidence=entry.confidence or 0.0,
+    )
+    try:
+        enhancement = provider.enhance(dict_entry)
+    except ProviderError as exc:
+        output_stream.write(f"Remote model error: {exc}\n")
+        return False
+    if not enhancement:
+        return False
+    entry.definitions_en = merge_unique(entry.definitions_en, enhancement.definitions_en)
+    entry.examples = merge_unique(entry.examples, enhancement.examples)
+    entry.word_forms = merge_unique(entry.word_forms, enhancement.word_forms)
+    entry.usage_tips = merge_unique(entry.usage_tips, enhancement.usage_tips)
+    entry.mnemonics = merge_unique(entry.mnemonics, enhancement.mnemonics)
+    if enhancement.model:
+        entry.model = enhancement.model
+        if entry.source:
+            if "+model" not in entry.source:
+                entry.source = f"{entry.source}+model"
+        else:
+            entry.source = "model"
+    entry.confidence = max(entry.confidence or 0, enhancement.confidence or 0)
+    return True
 
 
 def build_wordbook_entry(
@@ -317,8 +443,17 @@ def process_word(
     while True:
         existing = wordbook.find(word)
         if existing and not args.update:
+            enriched = False
+            if args.agent:
+                enriched = maybe_enrich_entry(existing, provider, output_stream)
+                if enriched:
+                    ensure_review_defaults(existing, utc_now())
+                    wordbook.upsert(existing)
+                    output_stream.write("Enriched existing entry with model.\n")
             output_stream.write("Entry already exists in wordbook.\n")
             render_entry(existing, output_stream)
+            if enriched:
+                return LookupResult(0, saved=True, updated=True)
             if not is_interactive(input_stream):
                 return LookupResult(0)
             choice = prompt_choice(
@@ -415,10 +550,19 @@ def run_review_session(
         limit = len(queue)
     reviewed = 0
     for entry in queue[:limit]:
-        output_stream.write(f"Review: {entry.word}\n")
+        use_color = supports_color(output_stream)
+        output_stream.write(
+            f"{style_text('Review:', ANSI_BOLD, ANSI_BLUE, enabled=use_color)} "
+            f"{style_text(entry.word, ANSI_BOLD, ANSI_BLUE, enabled=use_color)}\n"
+        )
+        enriched = maybe_enrich_entry(entry, provider, output_stream)
+        if enriched:
+            output_stream.write("Enriched entry with model.\n")
         render_review_answer(entry, output_stream)
         score = prompt_review_score(input_stream, output_stream)
         if score is None:
+            if enriched:
+                wordbook.upsert(entry)
             return ReviewResult(reviewed, stopped=True)
         now = utc_now()
         ensure_review_defaults(entry, now)
@@ -541,7 +685,12 @@ def run_agent_loop(
     return 0
 
 
-def main(argv: Iterable[str] | None = None, input_stream: TextIO = sys.stdin, output_stream: TextIO = sys.stdout) -> int:
+def main(
+    argv: Iterable[str] | None = None,
+    input_stream: TextIO = sys.stdin,
+    output_stream: TextIO = sys.stdout,
+) -> int:
+    global COLOR_PREF
     args = parse_args(argv)
     settings = load_settings()
 
@@ -574,6 +723,13 @@ def main(argv: Iterable[str] | None = None, input_stream: TextIO = sys.stdin, ou
             return 2
         settings.review_goal = args.goal
         update_review_goal(args.goal)
+    if args.color:
+        settings.color = True
+        update_color_preference(True)
+    if args.no_color:
+        settings.color = False
+        update_color_preference(False)
+    COLOR_PREF = settings.color
 
     wordbook = Wordbook(settings.wordbook_path)
     dictionary = EcdictDictionary(settings.dict_path, cache_dir=settings.cache_dir)

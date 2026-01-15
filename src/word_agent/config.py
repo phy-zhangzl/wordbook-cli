@@ -9,6 +9,7 @@ from pathlib import Path
 
 DEFAULT_SAVE_POLICY = "prompt"
 DEFAULT_REVIEW_GOAL = 10
+DEFAULT_COLOR = True
 CONFIG_PATH = Path(os.getenv("WORD_AGENT_CONFIG", "~/.config/word_agent/config.json")).expanduser()
 DOTENV_PATH = Path(os.getenv("DOTENV_PATH", ".env"))
 
@@ -20,6 +21,7 @@ class Settings:
     cache_dir: Path
     save_policy: str
     review_goal: int
+    color: bool
     allow_remote: bool
     provider: str
     model: str
@@ -67,16 +69,19 @@ def load_settings() -> Settings:
     preferences = load_preferences()
     save_policy = preferences.get("save_policy", DEFAULT_SAVE_POLICY)
     review_goal = preferences.get("review_goal", DEFAULT_REVIEW_GOAL)
+    color_pref = preferences.get("color", DEFAULT_COLOR)
     try:
         review_goal = int(os.getenv("REVIEW_GOAL", review_goal))
     except (TypeError, ValueError):
         review_goal = DEFAULT_REVIEW_GOAL
+    color_pref = _coerce_bool(color_pref, DEFAULT_COLOR)
     return Settings(
         wordbook_path=Path(os.getenv("WORDBOOK_PATH", "data/wordbook.csv")),
         dict_path=Path(os.getenv("DICT_PATH", "ecdict.csv")),
         cache_dir=Path(os.getenv("CACHE_DIR", "data/cache")),
         save_policy=save_policy,
         review_goal=review_goal,
+        color=color_pref,
         allow_remote=os.getenv("ALLOW_REMOTE", "1") != "0",
         provider=os.getenv("PROVIDER", ""),
         model=os.getenv("MODEL", ""),
@@ -95,3 +100,23 @@ def update_review_goal(review_goal: int) -> None:
     preferences = load_preferences()
     preferences["review_goal"] = review_goal
     save_preferences(preferences)
+
+
+def update_color_preference(color: bool) -> None:
+    preferences = load_preferences()
+    preferences["color"] = bool(color)
+    save_preferences(preferences)
+
+
+def _coerce_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return default
