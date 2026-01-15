@@ -20,6 +20,7 @@ The wordbook is stored at `data/wordbook.csv` (created on first write).
 - Use `--review` to run spaced repetition sessions and score recall.
 - Use `--agent` to let the model choose between review and lookup.
 - Output uses ANSI colors in TTYs; use `--no-color` to persist, or `NO_COLOR=1` once.
+- Use `--speak`/`--no-speak` to enable or disable pronunciation playback; use `r` to replay.
 
 ## Review Mode
 Review due words and score recall from 0-5:
@@ -78,8 +79,9 @@ Delete `data/cache/*.sqlite` to rebuild the cache.
 
 ## Preferences
 Preferences are stored at `~/.config/word_agent/config.json` and include the
-save policy (`prompt`, `always`, `never`), review goal, and color output.
-Use `--save-policy`, `--goal`, `--no-color`, or `--color` to update.
+save policy (`prompt`, `always`, `never`), review goal, color output, and speech.
+Use `--save-policy`, `--goal`, `--no-color`, `--color`, `--speak`, or `--no-speak`
+to update.
 
 Example preferences file:
 
@@ -87,7 +89,8 @@ Example preferences file:
 {
   "save_policy": "prompt",
   "review_goal": 10,
-  "color": true
+  "color": true,
+  "speak": false
 }
 ```
 
@@ -106,7 +109,7 @@ To enable a remote provider, set:
 
 Pass `--no-remote` to disable remote calls for a single run.
 Model enrichment can add extra English definitions, examples, word forms, usage tips,
-and mnemonics.
+mnemonics, and IPA pronunciation when missing.
 Agent planning and review coaching also use the configured remote model.
 
 ## Optional Global Command

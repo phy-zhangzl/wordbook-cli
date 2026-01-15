@@ -7,18 +7,20 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, TextIO
+from typing import Callable, Iterable, TextIO
 
 from word_agent.config import (
     load_settings,
     update_color_preference,
     update_review_goal,
     update_save_policy,
+    update_speak_preference,
 )
 from word_agent.dictionary import DictionaryError, EcdictDictionary
 from word_agent.models import DictionaryEntry, ModelEnhancement, WordbookEntry
 from word_agent.providers import ProviderError, get_provider
 from word_agent.review import apply_review_score, due_entries, ensure_review_defaults, utc_now
+from word_agent.speech import speech_supported, speak_word
 from word_agent.utils import normalize_word
 from word_agent.wordbook import Wordbook
 
@@ -32,6 +34,8 @@ ANSI_YELLOW = "\033[33m"
 ANSI_BLUE = "\033[34m"
 ANSI_CYAN = "\033[36m"
 COLOR_PREF: bool | None = None
+SPEAK_PREF: bool | None = None
+SPEECH_WARNED = False
 
 
 def parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
@@ -56,6 +60,9 @@ def parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
     color_group = parser.add_mutually_exclusive_group()
     color_group.add_argument("--color", action="store_true", help="Enable color output")
     color_group.add_argument("--no-color", action="store_true", help="Disable color output")
+    speak_group = parser.add_mutually_exclusive_group()
+    speak_group.add_argument("--speak", action="store_true", help="Enable pronunciation playback")
+    speak_group.add_argument("--no-speak", action="store_true", help="Disable pronunciation playback")
     parser.add_argument("--version", action="version", version="word-agent 0.1.0")
     return parser.parse_args(argv)
 
@@ -72,6 +79,52 @@ def supports_color(stream: TextIO) -> bool:
     if COLOR_PREF is False:
         return False
     return is_interactive(stream)
+
+
+def speech_enabled(output_stream: TextIO) -> bool:
+    if SPEAK_PREF is not True:
+        return False
+    return is_interactive(output_stream)
+
+
+def maybe_speak(word: str, output_stream: TextIO) -> bool:
+    if not speech_enabled(output_stream):
+        return False
+    if not speech_supported():
+        global SPEECH_WARNED
+        if not SPEECH_WARNED:
+            output_stream.write("Speech unavailable on this system.\n")
+            SPEECH_WARNED = True
+        return False
+    return speak_word(word)
+
+
+def build_replay(word: str, output_stream: TextIO) -> Callable[[], None] | None:
+    if not speech_enabled(output_stream):
+        return None
+
+    def replay() -> None:
+        maybe_speak(word, output_stream)
+
+    return replay
+
+
+def replay_prompt_suffix(replay: bool) -> str:
+    return "/[r]eplay" if replay else ""
+
+
+def prompt_choice_with_replay(
+    prompt: str,
+    input_stream: TextIO,
+    output_stream: TextIO,
+    replay: Callable[[], None] | None,
+) -> str:
+    while True:
+        choice = prompt_choice(prompt, input_stream, output_stream)
+        if replay and choice in {"r", "replay"}:
+            replay()
+            continue
+        return choice
 
 
 def style_text(text: str, *codes: str, enabled: bool) -> str:
@@ -154,13 +207,20 @@ def prompt_suggestion(
     return None
 
 
-def prompt_review_score(input_stream: TextIO, output_stream: TextIO) -> int | None:
+def prompt_review_score(
+    input_stream: TextIO,
+    output_stream: TextIO,
+    replay: Callable[[], None] | None = None,
+) -> int | None:
+    prompt = "Score recall [0-5]"
+    if replay:
+        prompt += " (r to replay)"
+    prompt += " (or q to stop review): "
     while True:
-        choice = prompt_choice(
-            "Score recall [0-5] (or q to stop review): ",
-            input_stream,
-            output_stream,
-        )
+        choice = prompt_choice(prompt, input_stream, output_stream)
+        if replay and choice in {"r", "replay"}:
+            replay()
+            continue
         if not choice or choice in {"q", "quit", "exit"}:
             return None
         if choice.isdigit():
@@ -330,7 +390,8 @@ def merge_unique(base: list[str], extra: list[str]) -> list[str]:
 
 def needs_enrichment(entry: WordbookEntry) -> bool:
     return bool(
-        not entry.definitions_en
+        not entry.pronunciation
+        or not entry.definitions_en
         or not entry.examples
         or not entry.word_forms
         or not entry.usage_tips
@@ -369,6 +430,8 @@ def maybe_enrich_entry(
     entry.word_forms = merge_unique(entry.word_forms, enhancement.word_forms)
     entry.usage_tips = merge_unique(entry.usage_tips, enhancement.usage_tips)
     entry.mnemonics = merge_unique(entry.mnemonics, enhancement.mnemonics)
+    if not entry.pronunciation and enhancement.pronunciation:
+        entry.pronunciation = enhancement.pronunciation
     if enhancement.model:
         entry.model = enhancement.model
         if entry.source:
@@ -392,14 +455,19 @@ def build_wordbook_entry(
     mnemonics = []
     model = ""
     confidence = entry.confidence
+    pronunciation = entry.pronunciation
     if enhancement:
         definitions = merge_unique(definitions, enhancement.definitions_en)
         examples = merge_unique(examples, enhancement.examples)
         word_forms = merge_unique(word_forms, enhancement.word_forms)
         usage_tips = merge_unique(usage_tips, enhancement.usage_tips)
         mnemonics = merge_unique(mnemonics, enhancement.mnemonics)
+        if not pronunciation and enhancement.pronunciation:
+            pronunciation = enhancement.pronunciation
         model = enhancement.model
         confidence = max(confidence, enhancement.confidence or 0)
+    if not pronunciation and existing and existing.pronunciation:
+        pronunciation = existing.pronunciation
     source = entry.source
     if enhancement and enhancement.model:
         source = f"{source}+model"
@@ -407,7 +475,7 @@ def build_wordbook_entry(
         word=entry.word,
         lemma=entry.lemma,
         pos=entry.pos,
-        pronunciation=entry.pronunciation,
+        pronunciation=pronunciation,
         definitions_en=definitions,
         translations_zh=entry.translations_zh,
         examples=examples,
@@ -452,15 +520,15 @@ def process_word(
                     output_stream.write("Enriched existing entry with model.\n")
             output_stream.write("Entry already exists in wordbook.\n")
             render_entry(existing, output_stream)
+            replay = build_replay(existing.word, output_stream)
+            if replay:
+                replay()
             if enriched:
                 return LookupResult(0, saved=True, updated=True)
             if not is_interactive(input_stream):
                 return LookupResult(0)
-            choice = prompt_choice(
-                "Update existing entry? [y]es/[n]o: ",
-                input_stream,
-                output_stream,
-            )
+            prompt = f"Update existing entry? [y]es/[n]o{replay_prompt_suffix(replay is not None)}: "
+            choice = prompt_choice_with_replay(prompt, input_stream, output_stream, replay)
             if choice not in {"y", "yes"}:
                 return LookupResult(0)
 
@@ -496,12 +564,27 @@ def process_word(
     wordbook_entry = build_wordbook_entry(dict_entry, enhancement, existing)
     render_summary(existing is not None, dict_entry.source, model_used, output_stream)
     render_entry(wordbook_entry, output_stream)
+    replay = build_replay(wordbook_entry.word, output_stream)
+    if replay:
+        replay()
 
     if wordbook_entry.confidence < 0.5:
         output_stream.write("Low confidence result; skipping save.\n")
         return LookupResult(1)
 
-    save, new_policy = should_save(settings.save_policy, input_stream, output_stream)
+    if (
+        replay
+        and settings.save_policy in {"always", "never"}
+        and is_interactive(input_stream)
+    ):
+        prompt_choice_with_replay(
+            "Press Enter to continue or r to replay: ",
+            input_stream,
+            output_stream,
+            replay,
+        )
+
+    save, new_policy = should_save(settings.save_policy, input_stream, output_stream, replay)
     if new_policy != settings.save_policy:
         update_save_policy(new_policy)
         settings.save_policy = new_policy
@@ -519,6 +602,7 @@ def should_save(
     save_policy: str,
     input_stream: TextIO,
     output_stream: TextIO,
+    replay: Callable[[], None] | None = None,
 ) -> tuple[bool, str]:
     if save_policy == "always":
         return True, save_policy
@@ -526,12 +610,16 @@ def should_save(
         return False, save_policy
     if not is_interactive(input_stream):
         return False, save_policy
-    choice = prompt_choice("Save to wordbook? [y]es/[n]o/[a]lways: ", input_stream, output_stream)
-    if choice in {"y", "yes"}:
-        return True, save_policy
-    if choice in {"a", "always"}:
-        return True, "always"
-    return False, save_policy
+    prompt = f"Save to wordbook? [y]es/[n]o/[a]lways{replay_prompt_suffix(replay is not None)}: "
+    while True:
+        choice = prompt_choice_with_replay(prompt, input_stream, output_stream, replay)
+        if choice in {"y", "yes"}:
+            return True, save_policy
+        if choice in {"a", "always"}:
+            return True, "always"
+        if choice in {"n", "no", ""}:
+            return False, save_policy
+        output_stream.write("Invalid choice.\n")
 
 
 def run_review_session(
@@ -555,11 +643,14 @@ def run_review_session(
             f"{style_text('Review:', ANSI_BOLD, ANSI_BLUE, enabled=use_color)} "
             f"{style_text(entry.word, ANSI_BOLD, ANSI_BLUE, enabled=use_color)}\n"
         )
+        replay = build_replay(entry.word, output_stream)
+        if replay:
+            replay()
         enriched = maybe_enrich_entry(entry, provider, output_stream)
         if enriched:
             output_stream.write("Enriched entry with model.\n")
         render_review_answer(entry, output_stream)
-        score = prompt_review_score(input_stream, output_stream)
+        score = prompt_review_score(input_stream, output_stream, replay)
         if score is None:
             if enriched:
                 wordbook.upsert(entry)
@@ -690,7 +781,7 @@ def main(
     input_stream: TextIO = sys.stdin,
     output_stream: TextIO = sys.stdout,
 ) -> int:
-    global COLOR_PREF
+    global COLOR_PREF, SPEAK_PREF
     args = parse_args(argv)
     settings = load_settings()
 
@@ -729,7 +820,14 @@ def main(
     if args.no_color:
         settings.color = False
         update_color_preference(False)
+    if args.speak:
+        settings.speak = True
+        update_speak_preference(True)
+    if args.no_speak:
+        settings.speak = False
+        update_speak_preference(False)
     COLOR_PREF = settings.color
+    SPEAK_PREF = settings.speak
 
     wordbook = Wordbook(settings.wordbook_path)
     dictionary = EcdictDictionary(settings.dict_path, cache_dir=settings.cache_dir)

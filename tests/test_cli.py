@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from word_agent import cli
-from word_agent.models import ModelEnhancement, WordbookEntry
+from word_agent.models import DictionaryEntry, ModelEnhancement, WordbookEntry
 from word_agent.wordbook import Wordbook
 
 
@@ -98,7 +98,7 @@ class TestCLI(unittest.TestCase):
                 word="hello",
                 lemma="hello",
                 pos="interj",
-                pronunciation="heh-low",
+                pronunciation="",
                 definitions_en=["greeting"],
                 translations_zh=["ni hao"],
                 review_due="2023-01-01T00:00:00+00:00",
@@ -129,6 +129,7 @@ class TestCLI(unittest.TestCase):
                     word_forms=["past: greeted"],
                     usage_tips=["Use in greetings."],
                     mnemonics=["Sounds like hello."],
+                    pronunciation="/huh-loh/",
                     model="stub-model",
                     confidence=0.6,
                 )
@@ -161,6 +162,68 @@ class TestCLI(unittest.TestCase):
             self.assertIn("Example sentence.", updated.examples)
             self.assertEqual(updated.model, "stub-model")
             self.assertIn("model", updated.source)
+
+    def test_build_entry_preserves_pronunciation(self):
+        dict_entry = DictionaryEntry(
+            word="hello",
+            lemma="hello",
+            pos="interj",
+            pronunciation="",
+            definitions_en=["greeting"],
+            translations_zh=["ni hao"],
+            source="local:ecdict.csv",
+            confidence=0.9,
+        )
+        existing = WordbookEntry(
+            word="hello",
+            lemma="hello",
+            pos="interj",
+            pronunciation="heh-low",
+            definitions_en=["greeting"],
+            translations_zh=["ni hao"],
+        )
+        entry = cli.build_wordbook_entry(dict_entry, None, existing)
+        self.assertEqual(entry.pronunciation, "heh-low")
+
+    def test_build_entry_uses_model_pronunciation(self):
+        dict_entry = DictionaryEntry(
+            word="hello",
+            lemma="hello",
+            pos="interj",
+            pronunciation="",
+            definitions_en=["greeting"],
+            translations_zh=["ni hao"],
+            source="local:ecdict.csv",
+            confidence=0.9,
+        )
+        enhancement = ModelEnhancement(
+            pronunciation="/huh-loh/",
+            model="stub-model",
+            confidence=0.6,
+        )
+        entry = cli.build_wordbook_entry(dict_entry, enhancement, None)
+        self.assertEqual(entry.pronunciation, "/huh-loh/")
+
+    def test_maybe_enrich_sets_pronunciation_when_missing(self):
+        class StubProvider:
+            def enhance(self, entry):
+                return ModelEnhancement(
+                    pronunciation="/huh-loh/",
+                    model="stub-model",
+                    confidence=0.6,
+                )
+
+        entry = WordbookEntry(
+            word="hello",
+            lemma="hello",
+            pos="interj",
+            pronunciation="",
+            definitions_en=["greeting"],
+            translations_zh=["ni hao"],
+        )
+        updated = cli.maybe_enrich_entry(entry, StubProvider(), io.StringIO())
+        self.assertTrue(updated)
+        self.assertEqual(entry.pronunciation, "/huh-loh/")
 
 
 if __name__ == "__main__":

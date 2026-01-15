@@ -53,9 +53,10 @@ class OpenAICompatibleProvider:
         prompt = (
             "Provide up to 2 short English definitions and up to 2 example sentences "
             "for the given word. Also include up to 4 word forms, up to 2 usage tips, "
-            "and up to 2 mnemonics. Return strict JSON with keys "
-            "'definitions_en', 'examples', 'word_forms', 'usage_tips', and 'mnemonics'. "
-            "Use short labels like 'past: manifested' in word_forms."
+            "and up to 2 mnemonics. Include IPA pronunciation in 'pronunciation' "
+            "(use /.../ or leave empty if unknown). Return strict JSON with keys "
+            "'definitions_en', 'examples', 'word_forms', 'usage_tips', 'mnemonics', "
+            "and 'pronunciation'. Use short labels like 'past: manifested' in word_forms."
         )
         payload = {
             "model": self.model,
@@ -95,12 +96,14 @@ class OpenAICompatibleProvider:
         word_forms = parsed.get("word_forms", []) or []
         usage_tips = parsed.get("usage_tips", []) or []
         mnemonics = parsed.get("mnemonics", []) or []
+        pronunciation = str(parsed.get("pronunciation", "")).strip()
         return ModelEnhancement(
             definitions_en=[str(item).strip() for item in definitions if str(item).strip()],
             examples=[str(item).strip() for item in examples if str(item).strip()],
             word_forms=[str(item).strip() for item in word_forms if str(item).strip()],
             usage_tips=[str(item).strip() for item in usage_tips if str(item).strip()],
             mnemonics=[str(item).strip() for item in mnemonics if str(item).strip()],
+            pronunciation=pronunciation,
             model=self.model,
             confidence=0.6,
         )
@@ -213,9 +216,10 @@ class GeminiProvider:
         prompt = (
             "Provide up to 2 short English definitions and up to 2 example sentences "
             "for the given word. Also include up to 4 word forms, up to 2 usage tips, "
-            "and up to 2 mnemonics. Return strict JSON with keys "
-            "'definitions_en', 'examples', 'word_forms', 'usage_tips', and 'mnemonics'. "
-            "Use short labels like 'past: manifested' in word_forms."
+            "and up to 2 mnemonics. Include IPA pronunciation in 'pronunciation' "
+            "(use /.../ or leave empty if unknown). Return strict JSON with keys "
+            "'definitions_en', 'examples', 'word_forms', 'usage_tips', 'mnemonics', "
+            "and 'pronunciation'. Use short labels like 'past: manifested' in word_forms."
         )
         payload = {
             "contents": [
@@ -252,12 +256,14 @@ class GeminiProvider:
         word_forms = parsed.get("word_forms", []) or []
         usage_tips = parsed.get("usage_tips", []) or []
         mnemonics = parsed.get("mnemonics", []) or []
+        pronunciation = str(parsed.get("pronunciation", "")).strip()
         return ModelEnhancement(
             definitions_en=[str(item).strip() for item in definitions if str(item).strip()],
             examples=[str(item).strip() for item in examples if str(item).strip()],
             word_forms=[str(item).strip() for item in word_forms if str(item).strip()],
             usage_tips=[str(item).strip() for item in usage_tips if str(item).strip()],
             mnemonics=[str(item).strip() for item in mnemonics if str(item).strip()],
+            pronunciation=pronunciation,
             model=self.model,
             confidence=0.6,
         )

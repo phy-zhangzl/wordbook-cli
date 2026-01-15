@@ -53,6 +53,7 @@ class ModelEnhancement:
     word_forms: List[str] = field(default_factory=list)
     usage_tips: List[str] = field(default_factory=list)
     mnemonics: List[str] = field(default_factory=list)
+    pronunciation: str = ""
     model: str = ""
     confidence: float = 0.0
 
