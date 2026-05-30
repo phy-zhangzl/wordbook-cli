@@ -8,6 +8,7 @@ __pycache__/
 !.env.example
 *.sqlite
 *.db
+.pi/
 
 data/wordbook.csv
 data/cache/

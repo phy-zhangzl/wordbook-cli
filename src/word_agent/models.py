@@ -49,6 +49,7 @@ class DictionaryEntry:
 @dataclass
 class ModelEnhancement:
     definitions_en: List[str] = field(default_factory=list)
+    translations_zh: List[str] = field(default_factory=list)
     examples: List[str] = field(default_factory=list)
     word_forms: List[str] = field(default_factory=list)
     usage_tips: List[str] = field(default_factory=list)

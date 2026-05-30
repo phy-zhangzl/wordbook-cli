@@ -40,7 +40,7 @@ SPEECH_WARNED = False
 
 def parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Lookup words and store them in a wordbook.")
-    parser.add_argument("word", nargs="?", help="English word to look up")
+    parser.add_argument("word", nargs="*", help="English word or term to look up")
     parser.add_argument("--dict", dest="dict_path", help="Path to local dictionary file")
     parser.add_argument("--wordbook", dest="wordbook_path", help="Path to wordbook CSV")
     parser.add_argument(
@@ -64,7 +64,10 @@ def parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
     speak_group.add_argument("--speak", action="store_true", help="Enable pronunciation playback")
     speak_group.add_argument("--no-speak", action="store_true", help="Disable pronunciation playback")
     parser.add_argument("--version", action="version", version="word-agent 0.1.0")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if isinstance(args.word, list):
+        args.word = " ".join(args.word).strip() or None
+    return args
 
 
 def is_interactive(stream: TextIO) -> bool:
@@ -376,6 +379,10 @@ def render_summary(
     )
 
 
+def is_term_lookup(word: str) -> bool:
+    return any(char.isspace() for char in word.strip()) or "-" in word
+
+
 def merge_unique(base: list[str], extra: list[str]) -> list[str]:
     seen = set()
     merged = []
@@ -392,6 +399,7 @@ def needs_enrichment(entry: WordbookEntry) -> bool:
     return bool(
         not entry.pronunciation
         or not entry.definitions_en
+        or not entry.translations_zh
         or not entry.examples
         or not entry.word_forms
         or not entry.usage_tips
@@ -426,6 +434,7 @@ def maybe_enrich_entry(
     if not enhancement:
         return False
     entry.definitions_en = merge_unique(entry.definitions_en, enhancement.definitions_en)
+    entry.translations_zh = merge_unique(entry.translations_zh, enhancement.translations_zh)
     entry.examples = merge_unique(entry.examples, enhancement.examples)
     entry.word_forms = merge_unique(entry.word_forms, enhancement.word_forms)
     entry.usage_tips = merge_unique(entry.usage_tips, enhancement.usage_tips)
@@ -449,6 +458,7 @@ def build_wordbook_entry(
     existing: WordbookEntry | None = None,
 ) -> WordbookEntry:
     definitions = entry.definitions_en
+    translations = entry.translations_zh
     examples = []
     word_forms = []
     usage_tips = []
@@ -458,6 +468,7 @@ def build_wordbook_entry(
     pronunciation = entry.pronunciation
     if enhancement:
         definitions = merge_unique(definitions, enhancement.definitions_en)
+        translations = merge_unique(translations, enhancement.translations_zh)
         examples = merge_unique(examples, enhancement.examples)
         word_forms = merge_unique(word_forms, enhancement.word_forms)
         usage_tips = merge_unique(usage_tips, enhancement.usage_tips)
@@ -477,7 +488,7 @@ def build_wordbook_entry(
         pos=entry.pos,
         pronunciation=pronunciation,
         definitions_en=definitions,
-        translations_zh=entry.translations_zh,
+        translations_zh=translations,
         examples=examples,
         word_forms=word_forms,
         usage_tips=usage_tips,
@@ -509,6 +520,7 @@ def process_word(
     output_stream: TextIO,
 ) -> LookupResult:
     while True:
+        word = normalize_word(word)
         existing = wordbook.find(word)
         if existing and not args.update:
             enriched = False
@@ -531,6 +543,25 @@ def process_word(
             choice = prompt_choice_with_replay(prompt, input_stream, output_stream, replay)
             if choice not in {"y", "yes"}:
                 return LookupResult(0)
+
+        if is_term_lookup(word):
+            if not provider:
+                output_stream.write(
+                    "Term lookup requires an LLM provider; local dictionary and word-by-word "
+                    "fallback are disabled for terms.\n"
+                )
+                return LookupResult(2)
+            dict_entry = DictionaryEntry(
+                word=word,
+                lemma=word,
+                pos="term",
+                pronunciation="",
+                definitions_en=[],
+                translations_zh=[],
+                source="model:term-lookup",
+                confidence=0.6,
+            )
+            break
 
         try:
             dict_entry = dictionary.lookup(word)
@@ -560,6 +591,12 @@ def process_word(
             model_used = True
         except ProviderError as exc:
             output_stream.write(f"Remote model error: {exc}\n")
+
+    if dict_entry.source == "model:term-lookup" and (
+        not enhancement or (not enhancement.definitions_en and not enhancement.translations_zh)
+    ):
+        output_stream.write("Term not found in local dictionary and remote lookup failed.\n")
+        return LookupResult(2)
 
     wordbook_entry = build_wordbook_entry(dict_entry, enhancement, existing)
     render_summary(existing is not None, dict_entry.source, model_used, output_stream)

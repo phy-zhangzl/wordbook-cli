@@ -15,6 +15,9 @@ The wordbook is stored at `data/wordbook.csv` (created on first write).
 
 ## Lookup Tips
 - If a word is not found, the CLI prints numbered suggestions. Enter a number to retry.
+- Multi-word or hyphenated terms such as `latent space` and `fine-tuning` always use an LLM
+  provider for whole-term translation. Local dictionary lookup and word-by-word fallback are
+  disabled for terms to avoid inaccurate results.
 - Use `--update` to refresh an existing wordbook entry with the latest lookup.
 - Use `--loop` for continuous learning; press Enter or type `q`/`quit` to exit.
 - Use `--review` to run spaced repetition sessions and score recall.
@@ -101,11 +104,19 @@ works with the local dictionary only.
 To enable a remote provider, set:
 
 - Copy `.env.example` to `.env` and fill in the values. `.env` is ignored by Git.
-- `PROVIDER` (e.g., `openai` or `gemini`)
+- `PROVIDER` (e.g., `ollama`, `openai`, or `gemini`)
 - `MODEL`
 - `API_BASE` (optional for Gemini)
-- `API_KEY`
+- `API_KEY` (not required for Ollama)
 - `ALLOW_REMOTE=1` to enable, `ALLOW_REMOTE=0` to disable globally.
+
+For Ollama, for example:
+
+```bash
+PROVIDER=ollama
+MODEL=your-ollama-model
+API_BASE=http://localhost:11434
+```
 
 Pass `--no-remote` to disable remote calls for a single run.
 Model enrichment can add extra English definitions, examples, word forms, usage tips,
